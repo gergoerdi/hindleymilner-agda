@@ -223,18 +223,18 @@ module Examples where
       a : ∀ {m} → Type 0 (suc m)
       a = tRigid zero
 
-      b : Type 0 {!!}
+      b : Type 0 3
       b = tRigid (suc zero)
 
-      c : Type 0 {!!}
+      c : Type 0 3
       c = tRigid (suc (suc zero))
 
       T#mono : ⊢ #mono ∷ Poly 3 (α ↣ ((β ↣ α) t× (γ ↣ α)))
       T#mono = tGen $ tGen $ tGen $ tGen₀ $
-               tAbs a $ tLet (tGen $ tGen₀ $ tAbs a $ tInst (λ ()) tVar) $
-               tApp (tApp (tInst Θ₁ tCon) (tInst (λ _ → b) tVar)) (tInst (λ _ → c) tVar)
+               tAbs c $ tLet (tGen $ tGen₀ $ tAbs a $ tInst (λ ()) tVar) $
+               tApp (tApp (tInst Θ tCon) (tInst (λ _ → b) tVar)) (tInst (λ _ → a) tVar)
         where
-          Θ₁ : TRigid 2 → Type 0 3
-          Θ₁ zero = b ↣ a
-          Θ₁ (suc zero) = c ↣ a
-          Θ₁ (suc (suc ()))
+          Θ : TRigid 2 → Type 0 3
+          Θ zero = b ↣ c
+          Θ (suc zero) = a ↣ c
+          Θ (suc (suc ()))
