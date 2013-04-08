@@ -4,8 +4,8 @@ open import Data.Nat
 open import Data.Bool
 open import Data.Fin
 open import Data.Fin.Props renaming (_≟_ to _F≟_)
-open import Data.List hiding (any)
-open import Data.List.Any using (any)
+open import Data.List
+open import Data.List.All using (All; []; _∷_)
 open import Data.Vec as Vec using (Vec; lookup; _∷_; [])
 open import Function using (_$_)
 open import Relation.Nullary.Core
@@ -60,21 +60,6 @@ conType cLeft = Poly 2 $ let α = tPoly zero; β = tPoly (suc zero) in α ↣ (�
 conType cRight = Poly 2 $ let α = tPoly zero; β = tPoly (suc zero) in β ↣ (α t+ β)
 conType cProd = Poly 2 $ let α = tPoly zero; β = tPoly (suc zero) in α ↣ β ↣ (α t× β)
 
-gen : ∀ {m} → TRigid m → PolyType m → PolyType m
-gen {m} a (Poly p τ) = Poly (suc p) (go τ)
-  where
-  go : Type p m → Type (suc p) m
-  go (tPoly α) = tPoly (suc α)
-  go (tRigid b) with b F≟ a
-  go (tRigid b) | yes b≡a = tPoly zero
-  go (tRigid b) | no b≠a = tRigid b
-  go (τ₁ ↣ τ₂) = go τ₁ ↣ go τ₂
-  go tUnit = tUnit
-  go tBool = tBool
-  go tNat = tNat
-  go (τ₁ t+ τ₂) = (go τ₁) t+ (go τ₂)
-  go (τ₁ t× τ₂) = (go τ₁) t× (go τ₂)
-
 data Simp {p m : ℕ} : Type p m → Type p 0 → Set where
   sPoly : ∀ {α} → Simp (tPoly α) (tPoly α)
   sFun : ∀ {τ₁ τ₁′ τ₂ τ₂′} → Simp τ₁ τ₁′ → Simp τ₂ τ₂′ → Simp (τ₁ ↣ τ₂) (τ₁′ ↣ τ₂′)
@@ -108,36 +93,74 @@ rigidVarsOf tNat = []
 rigidVarsOf (τ₁ t+ τ₂) = rigidVarsOf τ₁ ++ rigidVarsOf τ₂
 rigidVarsOf (τ₁ t× τ₂) = rigidVarsOf τ₁ ++ rigidVarsOf τ₂
 
-NonFree : ∀ {m n} → TCtxt m n → TRigid m → Set
-NonFree {m} Γ b = False $ any (_F≟_ b) (concatMap monoVarsOfPoly (Vec.toList Γ))
+data Flex {p} : ∀ {m} → Type p m → Set where
+  flPoly : ∀ {m α} → Flex {m = m} (tPoly α)
+  flRigid : ∀ {m a} → Flex {m = suc m} (tRigid (suc a))
+  flFun : ∀ {m τ₁ τ₂} → Flex {m = m} τ₁ → Flex {m = m} τ₂ → Flex (τ₁ ↣ τ₂)
+  flUnit : ∀ {m} → Flex {m = m} tUnit
+  flBool : ∀ {m} → Flex {m = m} tBool
+  flNat :  ∀ {m} → Flex {m = m} tNat
+  flSum : ∀ {m τ₁ τ₂} → Flex {m = m} τ₁ → Flex {m = m} τ₂ → Flex (τ₁ t+ τ₂)
+  flProd : ∀ {m τ₁ τ₂} → Flex {m = m} τ₁ → Flex {m = m} τ₂ → Flex (τ₁ t× τ₂)
+
+flex : ∀ {p m} → (τ : Type p (suc m)) → Flex τ → Type p m
+flex (tPoly α) flPoly = tPoly α
+flex (tRigid .(suc a)) (flRigid {a = a}) = tRigid a
+flex (τ₁ ↣ τ₂) (flFun fl₁ fl₂) = (flex τ₁ fl₁) ↣ (flex τ₂ fl₂)
+flex tUnit flUnit = tUnit
+flex tNat flNat = tNat
+flex tBool flBool = tBool
+flex (τ₁ t+ τ₂) (flSum fl₁ fl₂) = (flex τ₁ fl₁) t+ (flex τ₂ fl₂)
+flex (τ₁ t× τ₂) (flProd fl₁ fl₂) = (flex τ₁ fl₁) t× (flex τ₂ fl₂)
+
+Flex⋆ : ∀ {m n} → TCtxt m n → Set
+Flex⋆ {m} {n} Γ = All check (Vec.toList Γ)
   where
-  monoVarsOfPoly : PolyType m → List (TRigid m)
-  monoVarsOfPoly (Poly p τ) = rigidVarsOf τ
+  check : PolyType m → Set
+  check (Poly p τ) = Flex τ
+
+gen : ∀ {m} → PolyType (suc m) → PolyType m
+gen {m} (Poly p τ) = Poly (suc p) (go τ)
+  where
+  go : Type p (suc m) → Type (suc p) m
+  go (tPoly α) = tPoly (suc α)
+  go (tRigid zero) = tPoly zero
+  go (tRigid (suc a)) = tRigid a
+  go (τ₁ ↣ τ₂) = go τ₁ ↣ go τ₂
+  go tUnit = tUnit
+  go tBool = tBool
+  go tNat = tNat
+  go (τ₁ t+ τ₂) = (go τ₁) t+ (go τ₂)
+  go (τ₁ t× τ₂) = (go τ₁) t× (go τ₂)
+
+genCtxt : ∀ {m n} → (Γ : TCtxt (suc m) n) → Flex⋆ Γ → TCtxt m n
+genCtxt [] [] = []
+genCtxt (Poly p τ ∷ Γ) (nf ∷ nf⋆) = Poly p (flex τ nf) ∷ (genCtxt Γ nf⋆)
 
 mutual
-  data _#_⊢′_∷_ {n : ℕ} (m : ℕ) (Γ : TCtxt m n) : Expr n → PolyType m → Set where
-    tCon : ∀ {con} → m # Γ ⊢′ (C con) ∷ conType con
-    tVar : ∀ {i} → m # Γ ⊢′ (Var i) ∷ lookup i Γ
-    tGen₀ : ∀ {E τ} → m # Γ ⊢ E ∷ τ → m # Γ ⊢′ E ∷ Mono τ
-    tGen : ∀ {E σ} → (a : TRigid m) → {nonfree : NonFree Γ a} → m # Γ ⊢′ E ∷ σ → m # Γ ⊢′ E ∷ gen a σ
+  data _#_⊢′_∷_ {n : ℕ} : (m : ℕ) → (Γ : TCtxt m n) → Expr n → PolyType m → Set where
+    tCon : ∀ {m Γ} {con} → m # Γ ⊢′ (C con) ∷ conType con
+    tVar : ∀ {m Γ} {i} → m # Γ ⊢′ (Var i) ∷ lookup i Γ
+    tGen₀ : ∀ {m Γ} {E τ} → m # Γ ⊢ E ∷ τ → m # Γ ⊢′ E ∷ Mono τ
+    tGen : ∀ {m Γ} {E σ} → {flex : Flex⋆ Γ} → suc m # Γ ⊢′ E ∷ σ → m # (genCtxt Γ flex) ⊢′ E ∷ gen σ
 
-  data _#_⊢_∷_ {n : ℕ} (m : ℕ) (Γ : TCtxt m n) : Expr n → MonoType m → Set where
-    tInst : ∀ {p τ E} → (Θ : Inst p m) → (tPoly : m # Γ ⊢′ E ∷ Poly p τ)
+  data _#_⊢_∷_ {n : ℕ} : (m : ℕ) → (Γ : TCtxt m n) → Expr n → MonoType m → Set where
+    tInst : ∀ {m Γ} {p τ E} → (Θ : Inst p m) → (tPoly : m # Γ ⊢′ E ∷ Poly p τ)
           → m # Γ ⊢ E ∷ (inst Θ τ)
 
-    tAbs : (τ : MonoType m) → ∀ {E τ′} → (tBody : m # (Mono τ ∷ Γ) ⊢ E ∷ τ′)
+    tAbs : ∀ {m Γ} → (τ : MonoType m) → ∀ {E τ′} → (tBody : m # (Mono τ ∷ Γ) ⊢ E ∷ τ′)
          → m # Γ ⊢ Abs E ∷ τ ↣ τ′
-    tApp : ∀ {τ τ′ E₁ E₂} → (tFun : m # Γ ⊢ E₁ ∷ τ ↣ τ′) → (tArg : m # Γ ⊢ E₂ ∷ τ)
+    tApp : ∀ {m Γ} {τ τ′ E₁ E₂} → (tFun : m # Γ ⊢ E₁ ∷ τ ↣ τ′) → (tArg : m # Γ ⊢ E₂ ∷ τ)
          → m # Γ ⊢ E₁ · E₂ ∷ τ′
 
-    tLet : ∀ {E₀ E σ τ} → (tBind : m # Γ ⊢′ E₀ ∷ σ) → (tBody : m # (σ ∷ Γ) ⊢ E ∷ τ)
+    tLet : ∀ {m Γ} {E₀ E σ τ} → (tBind : m # Γ ⊢′ E₀ ∷ σ) → (tBody : m # (σ ∷ Γ) ⊢ E ∷ τ)
          → m # Γ ⊢ Let E₀ In E ∷ τ
 
-    tFix : ∀ {E τ} → (tBody : m # Γ ⊢ E ∷ τ ↣ τ)
+    tFix : ∀ {m Γ} {E τ} → (tBody : m # Γ ⊢ E ∷ τ ↣ τ)
          → m # Γ ⊢ Fix E ∷ τ
 
-_#⊢_∷_ : (m : ℕ) → Expr 0 → PolyType m → Set
-m #⊢ E ∷ σ = m # [] ⊢′ E ∷ σ
+⊢_∷_ : Expr 0 → PolyType 0 → Set
+⊢ E ∷ σ = 0 # [] ⊢′ E ∷ σ
 
 module Examples where
   module Id where
@@ -148,14 +171,14 @@ module Examples where
     #id = Abs $ Var zero
 
     module _ where
-      α : Type 1 1
+      α : Type 1 0
       α = tPoly zero
 
       a : Type 0 1
       a = tRigid zero
 
-      t : 1 #⊢ #id ∷ Poly 1 (α ↣ α)
-      t = tGen zero $ tGen₀ $
+      t : ⊢ #id ∷ Poly 1 (α ↣ α)
+      t = tGen {Γ = []} {flex = []} $ tGen₀ $
           tAbs a $ tInst (λ ()) $ tVar
 
   module Const where
@@ -166,7 +189,7 @@ module Examples where
     #const = Abs $ Abs $ Var (suc zero)
 
     module _ where
-      α β : Type 2 2
+      α β : Type 2 0
       α = tPoly zero
       β = tPoly (suc zero)
 
@@ -174,11 +197,11 @@ module Examples where
       a = tRigid zero
       b = tRigid (suc zero)
 
-      T#const′ : 2 # [] ⊢ #const ∷ a ↣ b ↣ a
-      T#const′ = tAbs a $ tAbs b $ tInst (λ ()) tVar
+      T#const′ : 2 # [] ⊢ #const ∷ b ↣ a ↣ b
+      T#const′ = tAbs b $ tAbs a $ tInst (λ ()) tVar
 
-      T#const : 2 #⊢ #const ∷ Poly 2 (α ↣ β ↣ α)
-      T#const = tGen zero $ tGen (suc zero) $ tGen₀ T#const′
+      T#const : ⊢ #const ∷ Poly 2 (α ↣ β ↣ α)
+      T#const = tGen $ tGen $ tGen₀ T#const′
 
   ⟨_,_⟩ : ∀ {n} → Expr n → Expr n → Expr n
   ⟨ x , y ⟩ = C cProd · x · y
@@ -192,19 +215,23 @@ module Examples where
     #mono = Abs $ Let (Abs $ Var (suc zero)) In ⟨ Var zero , Var zero ⟩
 
     module _ where
-      α β γ : Type 3 3
+      α β γ : Type 3 0
       α = tPoly zero
       β = tPoly (suc zero)
       γ = tPoly (suc (suc zero))
 
-      a b c : Type 0 3
+      a : ∀ {m} → Type 0 (suc m)
       a = tRigid zero
+
+      b : Type 0 {!!}
       b = tRigid (suc zero)
+
+      c : Type 0 {!!}
       c = tRigid (suc (suc zero))
 
-      T#mono : 3 #⊢ #mono ∷ Poly 3 (α ↣ ((β ↣ α) t× (γ ↣ α)))
-      T#mono = tGen zero $ tGen (suc zero) $ tGen (suc (suc zero)) $ tGen₀ $
-               tAbs a $ tLet (tGen (suc zero) $ tGen₀ $ tAbs b $ tInst (λ ()) tVar) $
+      T#mono : ⊢ #mono ∷ Poly 3 (α ↣ ((β ↣ α) t× (γ ↣ α)))
+      T#mono = tGen $ tGen $ tGen $ tGen₀ $
+               tAbs a $ tLet (tGen $ tGen₀ $ tAbs a $ tInst (λ ()) tVar) $
                tApp (tApp (tInst Θ₁ tCon) (tInst (λ _ → b) tVar)) (tInst (λ _ → c) tVar)
         where
           Θ₁ : TRigid 2 → Type 0 3
