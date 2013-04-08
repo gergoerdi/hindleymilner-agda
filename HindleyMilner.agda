@@ -38,9 +38,10 @@ data Type (p m : ℕ) : Set where
   tRigid : (a : TRigid m) → Type p m
   _↣_ : (τ₁ : Type p m) → (τ₂ : Type p m) → Type p m
   tUnit tNat tBool : Type p m
-  tSum tProd : (τ₁ : Type p m) → (τ₂ : Type p m) → Type p m
+  _t+_ _t×_ : (τ₁ : Type p m) → (τ₂ : Type p m) → Type p m
 
 infixr 20 _↣_
+infixr 19 _t+_ _t×_
 
 record PolyType (m : ℕ) : Set where
   constructor Poly
@@ -55,9 +56,9 @@ conType : ∀ {m} → Con → PolyType m
 conType cUnit = Mono tUnit
 conType (cNat _) = Mono tNat
 conType (cBool _) = Mono tBool
-conType cLeft = Poly 2 $ let α = tPoly zero; β = tPoly (suc zero) in α ↣ tSum α β
-conType cRight = Poly 2 $ let α = tPoly zero; β = tPoly (suc zero) in β ↣ tSum α β
-conType cProd = Poly 2 $ let α = tPoly zero; β = tPoly (suc zero) in α ↣ β ↣ tProd α β
+conType cLeft = Poly 2 $ let α = tPoly zero; β = tPoly (suc zero) in α ↣ (α t+ β)
+conType cRight = Poly 2 $ let α = tPoly zero; β = tPoly (suc zero) in β ↣ (α t+ β)
+conType cProd = Poly 2 $ let α = tPoly zero; β = tPoly (suc zero) in α ↣ β ↣ (α t× β)
 
 gen : ∀ {m} → TRigid m → PolyType m → PolyType m
 gen {m} a (Poly p τ) = Poly (suc p) (go τ)
@@ -71,8 +72,8 @@ gen {m} a (Poly p τ) = Poly (suc p) (go τ)
   go tUnit = tUnit
   go tBool = tBool
   go tNat = tNat
-  go (tSum τ₁ τ₂) = tSum (go τ₁) (go τ₂)
-  go (tProd τ₁ τ₂) = tProd (go τ₁) (go τ₂)
+  go (τ₁ t+ τ₂) = (go τ₁) t+ (go τ₂)
+  go (τ₁ t× τ₂) = (go τ₁) t× (go τ₂)
 
 data Simp {p m : ℕ} : Type p m → Type p 0 → Set where
   sPoly : ∀ {α} → Simp (tPoly α) (tPoly α)
@@ -91,8 +92,8 @@ inst Θ (τ₁ ↣ τ₂) = (inst Θ τ₁) ↣ (inst Θ τ₂)
 inst θ tUnit = tUnit
 inst θ tBool = tBool
 inst θ tNat = tNat
-inst Θ (tSum τ₁ τ₂) = tSum (inst Θ τ₁) (inst Θ τ₂)
-inst Θ (tProd τ₁ τ₂) = tProd (inst Θ τ₁) (inst Θ τ₂)
+inst Θ (τ₁ t+ τ₂) = (inst Θ τ₁) t+ (inst Θ τ₂)
+inst Θ (τ₁ t× τ₂) = (inst Θ τ₁) t× (inst Θ τ₂)
 
 TCtxt : ℕ → ℕ → Set
 TCtxt m = Vec (PolyType m)
@@ -104,8 +105,8 @@ rigidVarsOf (τ₁ ↣ τ₂) = rigidVarsOf τ₁ ++ rigidVarsOf τ₂
 rigidVarsOf tUnit = []
 rigidVarsOf tBool = []
 rigidVarsOf tNat = []
-rigidVarsOf (tSum τ₁ τ₂) = rigidVarsOf τ₁ ++ rigidVarsOf τ₂
-rigidVarsOf (tProd τ₁ τ₂) = rigidVarsOf τ₁ ++ rigidVarsOf τ₂
+rigidVarsOf (τ₁ t+ τ₂) = rigidVarsOf τ₁ ++ rigidVarsOf τ₂
+rigidVarsOf (τ₁ t× τ₂) = rigidVarsOf τ₁ ++ rigidVarsOf τ₂
 
 NonFree : ∀ {m n} → TCtxt m n → TRigid m → Set
 NonFree {m} Γ b = False $ any (_F≟_ b) (concatMap monoVarsOfPoly (Vec.toList Γ))
@@ -182,10 +183,6 @@ module Examples where
   ⟨_,_⟩ : ∀ {n} → Expr n → Expr n → Expr n
   ⟨ x , y ⟩ = C cProd · x · y
 
-  ⟨_×_⟩ : ∀ {p m} → Type p m → Type p m → Type p m
-  ⟨_×_⟩ = tProd
-  infix 19 ⟨_×_⟩
-
   module Mono where
     {-
       λ x → let f = λ y → x
@@ -205,7 +202,7 @@ module Examples where
       b = tRigid (suc zero)
       c = tRigid (suc (suc zero))
 
-      T#mono : 3 #⊢ #mono ∷ Poly 3 (α ↣ ⟨ β ↣ α × γ ↣ α ⟩)
+      T#mono : 3 #⊢ #mono ∷ Poly 3 (α ↣ ((β ↣ α) t× (γ ↣ α)))
       T#mono = tGen zero $ tGen (suc zero) $ tGen (suc (suc zero)) $ tGen₀ $
                tAbs a $ tLet (tGen (suc zero) $ tGen₀ $ tAbs b $ tInst (λ ()) tVar) $
                tApp (tApp (tInst Θ₁ tCon) (tInst (λ _ → b) tVar)) (tInst (λ _ → c) tVar)
